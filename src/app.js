@@ -25,7 +25,7 @@ mongoClient
     })
     .catch((err) => console.log(err));
 
-async function participantValidation(req, res) {
+async function participantValidation(req) {
     const userSchema = Joi.object({
         name: Joi.string()
             .alphanum()
@@ -39,11 +39,11 @@ async function participantValidation(req, res) {
     const sameName = await participants.find({ name: req.body.name }).toArray()
     
     if (!isValid) {
-        res.sendStatus(422)
-        return;
+       return 422;
+        
     } else if (sameName.length !== 0) {
-        res.sendStatus(409)
-        return;
+      
+        return 409;
     }
 
 }
@@ -54,7 +54,10 @@ app.post("/participants", async (req, res) => {
 
     const time = dayjs().format("HH:mm:ss")
     //fazer validações com a biblioteca joi// validar se campos preenchidos e se tem algum nome já no array de participantes
-    await participantValidation(req, res)
+   const error = await participantValidation(req);
+   if (error){
+    return res.sendStatus(error)
+   }
 
     participants
         .insert({
