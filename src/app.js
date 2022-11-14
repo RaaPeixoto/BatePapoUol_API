@@ -36,12 +36,12 @@ async function participantValidation(req) {
     const validation = userSchema.validate(req.body);
     const isValid = !validation.error
 
-    const sameName = await participants.find({ name: req.body.name }).toArray()
+    const sameName = await participants.findOne({ name: req.body.name })
 
     if (!isValid) {
         return 422;
 
-    } else if (sameName.length !== 0) {
+    } else if (sameName) {
 
         return 409;
     }
@@ -51,74 +51,64 @@ async function participantValidation(req) {
 app.post("/participants", async (req, res) => {
 
     const { name } = req.body
-
     const time = dayjs().format("HH:mm:ss")
     //fazer validações com a biblioteca joi// validar se campos preenchidos e se tem algum nome já no array de participantes
     const error = await participantValidation(req);
     if (error) {
         return res.sendStatus(error)
     }
+    try {
+        await participants
+            .insertOne({
+                name,
+                lastStatus: Date.now(),
+            })
 
-    participants
-        .insert({
-            name,
-            lastStatus: Date.now(),
-        })
-        .then((response) => {
-            messages
-                .insertOne({
-                    "from": name,
-                    "to": "Todos",
-                    "text": "entra na sala...",
-                    "type": "status",
-                    time,
-                })
-                .then((response) => {
-                    console.log(response);
-                    res.sendStatus(201);
-                })
-                .catch((err) => {
-                    res.status(500).send(err);
-                });
+        await messages
+            .insertOne({
+                "from": name,
+                "to": "Todos",
+                "text": "entra na sala...",
+                "type": "status",
+                time,
+            })
+        res.sendStatus(201);
 
-
-        })
-        .catch((err) => {
-            res.status(500).send(err);
-        });
+    } catch (err) {
+        res.status(500).send(err);
+    }
 });
 
-app.get("/participants", (req, res) => {
-    participants
-        .find()
-        .toArray()
-        .then((participants) => {
-            res.send(participants)
-        })
-        .catch((err) =>
-            res.status(500).send(err)
-        )
+app.get("/participants", async (req, res) => {
+    try {
+        const allParticipants = await participants.find().toArray()
+        res.send(allParticipants)
+
+    } catch (err) {
+        res.status(500).send(err)
+    }
 })
 
-async function messageValidation (req,from){
-    const participant = await participants.findOne({ name: from});
+
+async function messageValidation(req, from) {
+    const participant = await participants.findOne({ name: from });
     console.log(participant)
     if (!participant) {
-      return 422;
+        return 422;
     }
     const messageSchema = Joi.object({
         to: Joi.string().required(),
         text: Joi.string().required(),
         type: Joi.string().valid('message', 'private_message')
-      });
+    });
 
-      const validation = messageSchema.validate(req.body);
+    const validation = messageSchema.validate(req.body);
     const isValid = !validation.error
 
     if (!isValid) {
         return 422;
 
-    } 
+    }
 
 }
 
@@ -128,79 +118,66 @@ app.post("/messages", async (req, res) => {
     const from = req.headers.user
     const time = dayjs().format("HH:mm:ss")
     //fazer validações com a biblioteca joi//
-    const error = await messageValidation(req,from);
+    const error = await messageValidation(req, from);
     if (error) {
         return res.sendStatus(error)
     }
-    messages
-        .insertOne({
-            from,
-            to,
-            text,
-            type,
-            time,
-        })
-        .then((response) => {
-            console.log(response);
-            res.sendStatus(201);
-        })
-        .catch((err) => {
-            res.status(500).send(err);
-        });
+
+    try {
+        await messages
+            .insertOne({
+                from,
+                to,
+                text,
+                type,
+                time,
+            })
+        res.sendStatus(201)
+    } catch (err) {
+        res.status(500).send(err);
+    }
+
 });
 
-app.get("/messages", (req, res) => {
+app.get("/messages", async (req, res) => {
     const limit = parseInt(req.query.limit);
     const user = req.headers.user
-    if (!limit) {
-        messages
-            .find({ $or: [{ "to": user }, { "type": "message" }, { "type": "status" }] })
-            .toArray()
-            .then((messages) => {
-                res.send(messages)
-            })
-            .catch((err) =>
-                res.status(500).send(err)
-            )
-        return
-
-    }
-    messages
+    const filteredMessages = await messages
         .find({ $or: [{ "from": user }, { "to": user }, { "type": "message" }, { "type": "status" }] })
-        //arrumar o from
         .toArray()
-        .then((messages) => {
-            res.send(messages.slice(-limit))
-        })
-        .catch((err) =>
-            res.status(500).send(err)
-        )
+
+    try {
+        if (!limit) {
+            res.send(filteredMessages)
+            return
+        }
+        res.send(filteredMessages.slice(-limit))
+    } catch (err) {
+        res.status(500).send(err)
+    }
+
 })
 
-app.post("/status", (req, res) => {
+app.post("/status", async (req, res) => {
     const user = req.headers.user
-    participants
-        .find({ "name": user })
-        .toArray()
-        .then((p) => {
-            console.log(p)
-            if (p.length === 0) {
-                res.sendStatus(404);
-                console.log("sem")
-                return;
+    try {
+        const participant = await participants
+            .findOne({ "name": user })
+        
+     
+        if (!participant) {
+            res.sendStatus(404);
+            return;
 
-            }
-
-            participants.update({ name: user }, { $set: { lastStatus: Date.now() } }).then(
-                res.sendStatus(200)
-            )
-
-
-
-        })
-        .catch((err) =>
-            res.status(500).send(err)
+        }
+        participants.updateOne({ name: user }, { $set: { lastStatus: Date.now() } }).then(
+            res.sendStatus(200)
         )
+
+    } catch (err) {
+        res.status(500).send(err)
+    }
+
 
 });
 
@@ -219,19 +196,21 @@ function participantsUpdate() {
                 if (idleTime > 10000) {
 
                     participants.deleteOne({ name: element.name })
-                    messages.insertOne ({from: element.name,
+                    messages.insertOne({
+                        from: element.name,
                         to: 'Todos',
                         text: 'sai da sala...',
                         type: 'status',
-                        time: dayjs().format('HH:mm:ss')})
+                        time: dayjs().format('HH:mm:ss')
+                    })
 
                 }
             });
 
 
         })
-        
-        
+
+
 }
 
 app.listen(5000, () => {
