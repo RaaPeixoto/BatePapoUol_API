@@ -206,11 +206,7 @@ function participantsUpdate() {
 
                 }
             });
-
-
         })
-
-
 }
 
 app.listen(5000, () => {
