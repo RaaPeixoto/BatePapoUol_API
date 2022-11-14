@@ -37,12 +37,12 @@ async function participantValidation(req) {
     const isValid = !validation.error
 
     const sameName = await participants.find({ name: req.body.name }).toArray()
-    
+
     if (!isValid) {
-       return 422;
-        
+        return 422;
+
     } else if (sameName.length !== 0) {
-      
+
         return 409;
     }
 
@@ -54,10 +54,10 @@ app.post("/participants", async (req, res) => {
 
     const time = dayjs().format("HH:mm:ss")
     //fazer validações com a biblioteca joi// validar se campos preenchidos e se tem algum nome já no array de participantes
-   const error = await participantValidation(req);
-   if (error){
-    return res.sendStatus(error)
-   }
+    const error = await participantValidation(req);
+    if (error) {
+        return res.sendStatus(error)
+    }
 
     participants
         .insert({
@@ -100,13 +100,38 @@ app.get("/participants", (req, res) => {
         )
 })
 
+async function messageValidation (req,from){
+    const participant = await participants.findOne({ name: from});
+    console.log(participant)
+    if (!participant) {
+      return 422;
+    }
+    const messageSchema = Joi.object({
+        to: Joi.string().required(),
+        text: Joi.string().required(),
+        type: Joi.string().valid('message', 'private_message')
+      });
+
+      const validation = messageSchema.validate(req.body);
+    const isValid = !validation.error
+
+    if (!isValid) {
+        return 422;
+
+    } 
+
+}
 
 
-app.post("/messages", (req, res) => {
+app.post("/messages", async (req, res) => {
     const { to, text, type } = req.body
     const from = req.headers.user
     const time = dayjs().format("HH:mm:ss")
     //fazer validações com a biblioteca joi//
+    const error = await messageValidation(req,from);
+    if (error) {
+        return res.sendStatus(error)
+    }
     messages
         .insertOne({
             from,
@@ -141,11 +166,11 @@ app.get("/messages", (req, res) => {
 
     }
     messages
-        .find({ $or: [{ "to": user }, { "type": "message" }, { "type": "status" }] })
-
+        .find({ $or: [{ "from": user }, { "to": user }, { "type": "message" }, { "type": "status" }] })
+        //arrumar o from
         .toArray()
         .then((messages) => {
-            res.send(messages.slice(-limit)) /* tentar usar o metodo limit */
+            res.send(messages.slice(-limit))
         })
         .catch((err) =>
             res.status(500).send(err)
@@ -179,7 +204,7 @@ app.post("/status", (req, res) => {
 
 });
 
-setInterval(participantsUpdate, 5000)
+setInterval(participantsUpdate, 15000)
 
 
 function participantsUpdate() {
@@ -190,22 +215,23 @@ function participantsUpdate() {
         .then((p) => {
             p.forEach(element => {
                 const idleTime = now - element.lastStatus
-                /*  participants.delete({$unset:{lastStatus: element.lastStatus > (now+10000)}}) */
+
                 if (idleTime > 10000) {
 
                     participants.deleteOne({ name: element.name })
-                    console.log("taoff", idleTime)
-                } else {
-                    console.log("ta on", idleTime)
+                    messages.insertOne ({from: element.name,
+                        to: 'Todos',
+                        text: 'sai da sala...',
+                        type: 'status',
+                        time: dayjs().format('HH:mm:ss')})
+
                 }
             });
 
 
         })
-        .catch(err => {
-            console.log("deuruim")
-        }
-        )
+        
+        
 }
 
 app.listen(5000, () => {
